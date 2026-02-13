@@ -2,7 +2,13 @@ import Groq from 'groq-sdk';
 import fs from 'fs';
 import { AudioChunk, TranscriptionResult, TranscriptSegment } from '../types/video';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let _groq: Groq | null = null;
+function getGroq(): Groq {
+    if (!_groq) {
+        _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    }
+    return _groq;
+}
 
 /**
  * Transcribe all audio chunks using Groq Whisper.
@@ -23,7 +29,7 @@ export async function transcribeChunks(
         try {
             const file = fs.createReadStream(chunk.filePath);
 
-            const transcription = await groq.audio.transcriptions.create({
+            const transcription = await getGroq().audio.transcriptions.create({
                 file: file,
                 model: 'whisper-large-v3-turbo',
                 response_format: 'verbose_json',

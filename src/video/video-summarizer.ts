@@ -1,7 +1,13 @@
 import Groq from 'groq-sdk';
 import { MergedContent, VideoSummaryOutput, Chapter, KeyMoment, VisualHighlight } from '../types/video';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let _groq: Groq | null = null;
+function getGroq(): Groq {
+    if (!_groq) {
+        _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    }
+    return _groq;
+}
 
 /**
  * Fallback chain configuration (same pattern as existing chat summarization).
@@ -114,7 +120,7 @@ export async function generateVideoSummary(
 
             const fullPrompt = VIDEO_SUMMARY_PROMPT + truncatedContent;
 
-            const response = await groq.chat.completions.create({
+            const response = await getGroq().chat.completions.create({
                 model: provider.model,
                 messages: [
                     {

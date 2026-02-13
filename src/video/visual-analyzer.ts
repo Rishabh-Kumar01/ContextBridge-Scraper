@@ -8,7 +8,13 @@ interface ExtractedFrame {
     filePath: string;
 }
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let _groq: Groq | null = null;
+function getGroq(): Groq {
+    if (!_groq) {
+        _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    }
+    return _groq;
+}
 
 const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
@@ -41,7 +47,7 @@ export async function analyzeFrames(
             const imageBuffer = fs.readFileSync(frame.filePath);
             const base64Image = imageBuffer.toString('base64');
 
-            const response = await groq.chat.completions.create({
+            const response = await getGroq().chat.completions.create({
                 model: VISION_MODEL,
                 messages: [
                     {
