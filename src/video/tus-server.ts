@@ -32,12 +32,12 @@ export const tusServer = new TusServer({
         const filename = metadata.filename || 'video.mp4';
         const filetype = metadata.filetype || 'video/mp4';
 
-        console.log(`[TUS] Upload complete: job=${jobId}, file=${filename}`);
+        console.log(`[TUS] Upload complete: job=${jobId}, user=${userId}, file=${filename}`);
 
         try {
             // 1. Upload assembled file to R2
             const localPath = path.join(UPLOAD_DIR, upload.id);
-            const r2Key = `uploads/${userId}/${jobId}/${filename}`;
+            const r2Key = `uploads/${jobId}/${filename}`;
 
             await uploadToR2(localPath, r2Key, filetype);
 
@@ -64,7 +64,7 @@ export const tusServer = new TusServer({
             }
 
             // 4. Start async processing pipeline (fire and forget)
-            startProcessingPipeline(jobId!, r2Key, userId!).catch((error) => {
+            startProcessingPipeline(jobId!, r2Key, userId || '').catch((error) => {
                 console.error(`[Pipeline] Fatal error for job ${jobId}:`, error);
             });
 

@@ -25,18 +25,23 @@ export async function startProcessingPipeline(
     const jobDir = path.join(TEMP_DIR, jobId);
     const startTime = Date.now();
 
+    console.log(`[Pipeline][${jobId}] Starting for user=${userId}`);
+
     // Helper to update job status
     async function updateStatus(
         status: string,
         progressPercent: number,
         progressDetail: string
     ) {
-        await supabase.rpc('update_video_job_status', {
+        const { error } = await supabase.rpc('update_video_job_status', {
             p_job_id: jobId,
             p_status: status,
             p_progress_percent: progressPercent,
             p_progress_detail: progressDetail,
         });
+        if (error) {
+            console.error(`[Pipeline][${jobId}] Failed to update status to ${status}:`, error.message);
+        }
         console.log(`[Pipeline][${jobId}] ${status}: ${progressDetail} (${progressPercent}%)`);
     }
 
