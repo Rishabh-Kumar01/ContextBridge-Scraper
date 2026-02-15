@@ -6,6 +6,7 @@ import fs from 'fs';
 import { uploadToR2 } from './r2-client';
 import { startProcessingPipeline } from './processor';
 import { getSupabaseServiceClient } from '../utils/supabase-client';
+import { IncomingMessage } from 'http';
 
 const UPLOAD_DIR = process.env.TUS_UPLOAD_DIR || '/tmp/video-processing/uploads';
 
@@ -21,11 +22,16 @@ export const tusServer = new TusServer({
     respectForwardedHeaders: true,
 
     // Explicitly construct the upload URL using proxy headers.
-    // This ensures https:// is used when behind Render's reverse proxy,
-    // preventing mixed-content errors on the frontend.
     generateUrl(req, { proto, host, path, id }) {
-        const actualProto = req.headers.get('x-forwarded-proto') || proto;
-        const actualHost = req.headers.get('x-forwarded-host') || host;
+        // FIXED: Double cast (as unknown as IncomingMessage) to bypass TypeScript overlap check
+        const nativeReq = req as unknown as IncomingMessage;
+        
+        const forwardedProto = nativeReq.headers['x-forwarded-proto'];
+        const forwardedHost = nativeReq.headers['x-forwarded-host'];
+
+        const actualProto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || proto;
+        const actualHost = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost || host;
+
         return `${actualProto}://${actualHost}${path}/${id}`;
     },
 
