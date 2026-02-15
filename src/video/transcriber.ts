@@ -12,7 +12,7 @@ function getGroq(): Groq {
 
 /**
  * Transcribe all audio chunks using Groq Whisper.
- * Handles rate limiting with delays between requests.
+ * Handles rate limiting and connection errors with exponential backoff.
  */
 export async function transcribeChunks(
     chunks: AudioChunk[],
@@ -22,53 +22,74 @@ export async function transcribeChunks(
     let fullText = '';
     let detectedLanguage = 'en';
 
+    const MAX_RETRIES = 5;
+
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         await onProgress(i + 1, chunks.length);
 
-        try {
-            const file = fs.createReadStream(chunk.filePath);
+        let retries = 0;
+        let success = false;
 
-            const transcription = await getGroq().audio.transcriptions.create({
-                file: file,
-                model: 'whisper-large-v3-turbo',
-                response_format: 'verbose_json',
-                timestamp_granularities: ['segment'],
-                language: 'en',
-                temperature: 0.0,
-            });
+        while (!success && retries <= MAX_RETRIES) {
+            try {
+                const file = fs.createReadStream(chunk.filePath);
 
-            // Offset timestamps by chunk start time
-            if ((transcription as any).segments) {
-                for (const segment of (transcription as any).segments) {
-                    allSegments.push({
-                        start: segment.start + chunk.startTime,
-                        end: segment.end + chunk.startTime,
-                        text: segment.text.trim(),
-                    });
+                const transcription = await getGroq().audio.transcriptions.create({
+                    file: file,
+                    model: 'whisper-large-v3-turbo',
+                    response_format: 'verbose_json',
+                    timestamp_granularities: ['segment'],
+                    language: 'en',
+                    temperature: 0.0,
+                });
+
+                // Offset timestamps by chunk start time
+                if ((transcription as any).segments) {
+                    for (const segment of (transcription as any).segments) {
+                        allSegments.push({
+                            start: segment.start + chunk.startTime,
+                            end: segment.end + chunk.startTime,
+                            text: segment.text.trim(),
+                        });
+                    }
                 }
-            }
 
-            fullText += (transcription.text || '') + ' ';
-            if ((transcription as any).language) {
-                detectedLanguage = (transcription as any).language;
-            }
+                fullText += (transcription.text || '') + ' ';
+                if ((transcription as any).language) {
+                    detectedLanguage = (transcription as any).language;
+                }
 
-            console.log(
-                `[Whisper] Chunk ${i + 1}/${chunks.length}: ` +
-                `${(transcription as any).segments?.length || 0} segments`
-            );
+                console.log(
+                    `[Whisper] Chunk ${i + 1}/${chunks.length}: ` +
+                    `${(transcription as any).segments?.length || 0} segments`
+                );
 
-        } catch (error: any) {
-            // Handle rate limiting — wait and retry
-            if (error?.status === 429) {
-                console.log(`[Whisper] Rate limited on chunk ${i + 1}, waiting 30s...`);
-                await delay(30000);
-                i--; // Retry this chunk
-                continue;
+                success = true;
+
+            } catch (error: any) {
+                retries++;
+                const isRateLimit = error?.status === 429;
+                const isConnectionError = error?.cause?.code === 'ECONNRESET'
+                    || error?.cause?.code === 'ETIMEDOUT'
+                    || error?.cause?.code === 'ENOTFOUND'
+                    || error?.message?.includes('Connection error');
+
+                if ((isRateLimit || isConnectionError) && retries <= MAX_RETRIES) {
+                    // Exponential backoff: 15s, 30s, 60s, 120s, 240s
+                    const backoffMs = Math.min(15000 * Math.pow(2, retries - 1), 240000);
+                    const reason = isRateLimit ? 'rate limited' : 'connection error';
+                    console.log(
+                        `[Whisper] ${reason} on chunk ${i + 1}, ` +
+                        `retry ${retries}/${MAX_RETRIES}, waiting ${backoffMs / 1000}s...`
+                    );
+                    await delay(backoffMs);
+                    continue;
+                }
+
+                console.error(`[Whisper] Failed on chunk ${i + 1} after ${retries} retries:`, error.message || error);
+                throw error;
             }
-            console.error(`[Whisper] Error on chunk ${i + 1}:`, error);
-            throw error;
         }
 
         // Small delay between chunks to respect rate limits

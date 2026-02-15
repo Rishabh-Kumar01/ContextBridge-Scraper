@@ -39,90 +39,111 @@ export async function analyzeFrames(
 ): Promise<FrameAnalysis[]> {
     const results: FrameAnalysis[] = [];
 
+    const MAX_RETRIES = 5;
+
     for (let i = 0; i < frames.length; i++) {
         const frame = frames[i];
         await onProgress(i + 1, frames.length);
 
-        try {
-            const imageBuffer = fs.readFileSync(frame.filePath);
-            const base64Image = imageBuffer.toString('base64');
+        let retries = 0;
+        let success = false;
 
-            const response = await getGroq().chat.completions.create({
-                model: VISION_MODEL,
-                messages: [
-                    {
-                        role: 'user',
-                        content: [
-                            {
-                                type: 'image_url',
-                                image_url: {
-                                    url: `data:image/jpeg;base64,${base64Image}`,
-                                },
-                            },
-                            {
-                                type: 'text',
-                                text: FRAME_ANALYSIS_PROMPT,
-                            },
-                        ],
-                    },
-                ],
-                max_tokens: 500,
-                temperature: 0.1,
-            });
-
-            const text = response.choices[0]?.message?.content || '';
-
-            // Parse JSON response
-            let parsed: any;
+        while (!success && retries <= MAX_RETRIES) {
             try {
-                // Strip any markdown fencing
-                const cleaned = text.replace(/```json\n?|```\n?/g, '').trim();
-                parsed = JSON.parse(cleaned);
-            } catch {
-                // If JSON parsing fails, create a basic analysis
-                parsed = {
-                    description: text.slice(0, 200),
+                const imageBuffer = fs.readFileSync(frame.filePath);
+                const base64Image = imageBuffer.toString('base64');
+
+                const response = await getGroq().chat.completions.create({
+                    model: VISION_MODEL,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'image_url',
+                                    image_url: {
+                                        url: `data:image/jpeg;base64,${base64Image}`,
+                                    },
+                                },
+                                {
+                                    type: 'text',
+                                    text: FRAME_ANALYSIS_PROMPT,
+                                },
+                            ],
+                        },
+                    ],
+                    max_tokens: 500,
+                    temperature: 0.1,
+                });
+
+                const text = response.choices[0]?.message?.content || '';
+
+                // Parse JSON response
+                let parsed: any;
+                try {
+                    // Strip any markdown fencing
+                    const cleaned = text.replace(/```json\n?|```\n?/g, '').trim();
+                    parsed = JSON.parse(cleaned);
+                } catch {
+                    // If JSON parsing fails, create a basic analysis
+                    parsed = {
+                        description: text.slice(0, 200),
+                        contentType: 'general',
+                        hasText: false,
+                        detectedText: null,
+                        isSignificant: false,
+                    };
+                }
+
+                results.push({
+                    frameIndex: frame.index,
+                    timestamp: frame.timestamp,
+                    filePath: frame.filePath,
+                    description: parsed.description || '',
+                    contentType: parsed.contentType || 'general',
+                    hasText: parsed.hasText || false,
+                    detectedText: parsed.detectedText || null,
+                });
+
+                console.log(
+                    `[Vision] Frame ${i + 1}/${frames.length}: ` +
+                    `${parsed.contentType} (significant: ${parsed.isSignificant})`
+                );
+
+                success = true;
+
+            } catch (error: any) {
+                retries++;
+                const isRateLimit = error?.status === 429;
+                const isConnectionError = error?.cause?.code === 'ECONNRESET'
+                    || error?.cause?.code === 'ETIMEDOUT'
+                    || error?.cause?.code === 'ENOTFOUND'
+                    || error?.message?.includes('Connection error');
+
+                if ((isRateLimit || isConnectionError) && retries <= MAX_RETRIES) {
+                    const backoffMs = Math.min(15000 * Math.pow(2, retries - 1), 240000);
+                    const reason = isRateLimit ? 'rate limited' : 'connection error';
+                    console.log(
+                        `[Vision] ${reason} on frame ${i + 1}, ` +
+                        `retry ${retries}/${MAX_RETRIES}, waiting ${backoffMs / 1000}s...`
+                    );
+                    await delay(backoffMs);
+                    continue;
+                }
+
+                // Non-fatal: skip this frame after exhausting retries
+                console.error(`[Vision] Failed on frame ${i + 1} after ${retries} retries:`, error?.message || error);
+                results.push({
+                    frameIndex: frame.index,
+                    timestamp: frame.timestamp,
+                    filePath: frame.filePath,
+                    description: 'Frame analysis failed',
                     contentType: 'general',
                     hasText: false,
                     detectedText: null,
-                    isSignificant: false,
-                };
+                });
+                success = true; // Move on to next frame
             }
-
-            results.push({
-                frameIndex: frame.index,
-                timestamp: frame.timestamp,
-                filePath: frame.filePath,
-                description: parsed.description || '',
-                contentType: parsed.contentType || 'general',
-                hasText: parsed.hasText || false,
-                detectedText: parsed.detectedText || null,
-            });
-
-            console.log(
-                `[Vision] Frame ${i + 1}/${frames.length}: ` +
-                `${parsed.contentType} (significant: ${parsed.isSignificant})`
-            );
-
-        } catch (error: any) {
-            if (error?.status === 429) {
-                console.log(`[Vision] Rate limited on frame ${i + 1}, waiting 30s...`);
-                await delay(30000);
-                i--;
-                continue;
-            }
-
-            // Non-fatal: skip this frame
-            console.error(`[Vision] Error on frame ${i + 1}:`, error?.message || error);
-            results.push({
-                frameIndex: frame.index,
-                timestamp: frame.timestamp,
-                filePath: frame.filePath,
-                description: 'Frame analysis failed',
-                contentType: 'general',
-                hasText: false,
-                detectedText: null,
-            });
         }
 
         // Rate limit delay between frames

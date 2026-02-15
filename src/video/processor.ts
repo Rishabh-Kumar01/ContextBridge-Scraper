@@ -129,7 +129,7 @@ export async function startProcessingPipeline(
         // ============================================
         const processingTime = (Date.now() - startTime) / 1000;
 
-        await supabase.from('video_results').insert({
+        const { error: insertError } = await supabase.from('video_results').insert({
             job_id: jobId,
             user_id: userId,
             brief_summary: summaryOutput.briefSummary,
@@ -145,8 +145,15 @@ export async function startProcessingPipeline(
             processing_time_seconds: processingTime,
         });
 
+        if (insertError) {
+            console.error(`[Pipeline][${jobId}] Failed to insert video_results:`, insertError.message);
+        }
+
         // Increment video usage
-        await supabase.rpc('increment_video_usage', { p_user_id: userId });
+        const { error: usageError } = await supabase.rpc('increment_video_usage', { p_user_id: userId });
+        if (usageError) {
+            console.error(`[Pipeline][${jobId}] Failed to increment usage for user ${userId}:`, usageError.message);
+        }
 
         // ============================================
         // STAGE 9: Cleanup
