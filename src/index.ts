@@ -9,6 +9,7 @@ import { errorHandler } from './middleware/error-handler';
 import { tusServer } from './video/tus-server';
 
 const app = express();
+app.set('trust proxy', true); 
 const PORT = process.env.PORT || 3001;
 
 // Middleware
