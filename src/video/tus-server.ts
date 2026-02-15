@@ -18,10 +18,16 @@ export const tusServer = new TusServer({
     path: '/upload',
     datastore: new FileStore({ directory: UPLOAD_DIR }),
     locker: new MemoryLocker(),
-
-    // IMPORTANT: Respect X-Forwarded-Proto and X-Forwarded-Host headers
-    // from Render's reverse proxy so Location URLs use https://
     respectForwardedHeaders: true,
+
+    // Explicitly construct the upload URL using proxy headers.
+    // This ensures https:// is used when behind Render's reverse proxy,
+    // preventing mixed-content errors on the frontend.
+    generateUrl(req, { proto, host, path, id }) {
+        const actualProto = req.headers.get('x-forwarded-proto') || proto;
+        const actualHost = req.headers.get('x-forwarded-host') || host;
+        return `${actualProto}://${actualHost}${path}/${id}`;
+    },
 
     // Called when upload completes
     async onUploadFinish(req, upload) {
@@ -57,7 +63,7 @@ export const tusServer = new TusServer({
                 })
                 .eq('id', jobId);
 
-            // 3. Delete local file (free up Railway disk)
+            // 3. Delete local file (free up disk)
             if (fs.existsSync(localPath)) {
                 fs.unlinkSync(localPath);
             }
