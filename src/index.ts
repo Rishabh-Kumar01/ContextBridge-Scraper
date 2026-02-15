@@ -13,8 +13,24 @@ app.set('trust proxy', true);
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(helmet());
-app.use(cors());
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginOpenerPolicy: false,
+}));
+app.use(cors({
+    origin: true, // Reflect request origin
+    methods: ['GET', 'POST', 'PATCH', 'HEAD', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+        'Content-Type', 'Authorization', 'X-API-Key',
+        'Tus-Resumable', 'Upload-Length', 'Upload-Offset',
+        'Upload-Metadata', 'Upload-Concat',
+    ],
+    exposedHeaders: [
+        'Upload-Offset', 'Upload-Length', 'Tus-Resumable',
+        'Tus-Version', 'Tus-Extension', 'Tus-Max-Size',
+        'Upload-Metadata', 'Upload-Concat', 'Location',
+    ],
+}));
 app.use(express.json());
 
 // Routes
