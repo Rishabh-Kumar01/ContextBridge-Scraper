@@ -19,6 +19,10 @@ export const tusServer = new TusServer({
     datastore: new FileStore({ directory: UPLOAD_DIR }),
     locker: new MemoryLocker(),
 
+    // IMPORTANT: Respect X-Forwarded-Proto and X-Forwarded-Host headers
+    // from Render's reverse proxy so Location URLs use https://
+    respectForwardedHeaders: true,
+
     // Called when upload completes
     async onUploadFinish(req, upload) {
         const metadata = upload.metadata;
