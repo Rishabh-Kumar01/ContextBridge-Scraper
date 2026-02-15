@@ -129,7 +129,7 @@ export async function startProcessingPipeline(
         // ============================================
         const processingTime = (Date.now() - startTime) / 1000;
 
-        const { error: insertError } = await supabase.from('video_results').insert({
+        const { data: insertData, error: insertError } = await supabase.from('video_results').insert({
             job_id: jobId,
             user_id: userId,
             brief_summary: summaryOutput.briefSummary,
@@ -143,16 +143,20 @@ export async function startProcessingPipeline(
             total_key_moments: summaryOutput.keyMoments.length,
             ai_provider_used: summaryOutput.providerUsed,
             processing_time_seconds: processingTime,
-        });
+        }).select();
 
         if (insertError) {
-            console.error(`[Pipeline][${jobId}] Failed to insert video_results:`, insertError.message);
+            console.error(`[Pipeline][${jobId}] Failed to insert video_results:`, insertError.message, insertError);
+        } else {
+            console.log(`[Pipeline][${jobId}] video_results inserted successfully, rows:`, insertData?.length ?? 0);
         }
 
         // Increment video usage
-        const { error: usageError } = await supabase.rpc('increment_video_usage', { p_user_id: userId });
+        const { data: usageData, error: usageError } = await supabase.rpc('increment_video_usage', { p_user_id: userId });
         if (usageError) {
-            console.error(`[Pipeline][${jobId}] Failed to increment usage for user ${userId}:`, usageError.message);
+            console.error(`[Pipeline][${jobId}] Failed to increment usage for user ${userId}:`, usageError.message, usageError.code, usageError.details);
+        } else {
+            console.log(`[Pipeline][${jobId}] Usage incremented successfully for user ${userId}, response:`, usageData);
         }
 
         // ============================================
